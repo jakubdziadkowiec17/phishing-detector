@@ -94,8 +94,10 @@ Dlatego SMOTE stosujemy po splicie, wyłącznie na `X_train`.
 
 ### Spójność CV z ewaluacją testową
 
-Cross-Validation uruchamiane jest na `X_train_smote` — tych samych danych, na których
-trenowane są modele finalne. Dzięki temu wyniki CV i wyniki na `X_test` są porównywalne.
+Cross-Validation uruchamiane jest na zbiorze treningowym `X_train` (przed SMOTE), a SMOTE
+wykonywane jest **wewnątrz każdego foldu** w pipeline (tylko na części treningowej danego foldu).
+To eliminuje ryzyko data leakage i jest metodologicznie poprawnym odpowiednikiem tego, jak
+model byłby trenowany na nowych danych.
 
 ---
 
@@ -133,12 +135,12 @@ Zbiór testowy: **47 074 próbek** (20% datasetu, stratified split, czysty — b
 
 *Precision, Recall, F1 liczone dla klasy phishing (pos_label=0).*
 
-### 5.2 Cross-Validation (5-fold, stratified, dane po SMOTE)
+### 5.2 Cross-Validation (5-fold, stratified, SMOTE wewnątrz foldów)
 
 | Model | CV Accuracy | CV F1 (mean) | CV F1 (std) |
 |-------|:-----------:|:------------:|:-----------:|
-| Logistic Regression | 0.9825 | 0.9823 | ±0.0006 |
-| **Random Forest** | **0.9966** | **0.9966** | **±0.0003** |
+| Logistic Regression | 0.9827 | 0.9796 | ±0.0009 |
+| **Random Forest** | **0.9967** | **0.9961** | **±0.0002** |
 
 Wyniki CV są spójne z wynikami na zbiorze testowym — brak oznak overfittingu ani
 data leakage. Niskie std potwierdza stabilność modeli niezależnie od podziału danych.
@@ -238,29 +240,56 @@ separowalność klas.
 
 ## 7. Analiza Odporności Modelu (Robustness Analysis)
 
-Testowano jak modele degradują pod Gaussowskim szumem proporcjonalnym do odchylenia
-standardowego każdej cechy (`noise_std` = 0.0, 0.05, 0.10, 0.20, 0.30, 0.50, 1.00).
-Szum symuluje atakującego modyfikującego cechy URL by obejść detekcję.
+Testowano degradację modeli pod wpływem Gaussowskiego szumu dodawanego do cech URL.
+Szum był proporcjonalny do odchylenia standardowego każdej cechy (noise_std ∈ {0.0, 0.05, 0.10, 0.20, 0.30, 0.50, 1.00}).
+Celem eksperymentu było zasymulowanie sytuacji, w której atakujący modyfikuje strukturę URL
+w celu obejścia detekcji phishingu (adversarial perturbation).
 
 ### Wyniki (F1 dla klasy phishing)
 
 | noise_std | LR F1 | RF F1 |
 |:---------:|:-----:|:-----:|
 | 0.00 (czysty) | 0.9815 | 0.9961 |
-| 0.05 | ~0.975 | ~0.995 |
-| 0.10 | ~0.965 | ~0.993 |
-| 0.20 | ~0.945 | ~0.988 |
-| 0.30 | ~0.915 | ~0.978 |
-| 0.50 | ~0.870 | ~0.950 |
-| 1.00 | ~0.780 | ~0.890 |
+| 0.05 | 0.9815 | 0.7481 |
+| 0.10 | 0.7601 | 0.7140 |
+| 0.20 | 0.6699 | 0.6945 |
+| 0.30 | 0.6432 | 0.6821 |
+| 0.50 | 0.6217 | 0.6610 |
+| 1.00 | 0.5984 | 0.6403 |
 
-*Wartości przybliżone — dokładne liczby w outputs/robustness_analysis.png*
+### Interpretacja wyników
 
-**Wnioski:**
-- Random Forest jest **bardziej odporny** na perturbacje — agregacja 100 drzew wygładza
-  lokalne zaburzenia cech
-- Logistic Regression (model liniowy) jest bardziej wrażliwy na przesunięcie rozkładu
-- F1 spada poniżej 0.90 dla LR przy noise_std ≈ 0.30, dla RF przy noise_std ≈ 1.00
+W przeciwieństwie do standardowej ewaluacji na czystym zbiorze testowym,
+oba modele okazały się silnie wrażliwe na perturbacje cech wejściowych.
+
+Najważniejsze obserwacje:
+
+- Już niewielki szum (`noise_std=0.05`) powoduje znaczący spadek F1:
+  - Logistic Regression: `0.9815 → 0.8631`
+  - Random Forest: `0.9961 → 0.7481`
+
+- Random Forest osiąga wyższe wyniki przy większym poziomie szumu (`noise_std ≥ 0.20`),
+  jednak jego degradacja przy małych perturbacjach jest gwałtowniejsza niż dla Logistic Regression.
+
+- Przy bardzo dużym szumie (`noise_std=1.00`) oba modele tracą znaczną część skuteczności:
+  - Logistic Regression: `F1 ≈ 0.60`
+  - Random Forest: `F1 ≈ 0.64`
+
+Eksperyment pokazuje, że modele trenowane wyłącznie na statycznych cechach URL
+są podatne na przesunięcie rozkładu danych (distribution shift) i manipulację cechami.
+
+### Wnioski metodologiczne
+
+Robustness Analysis nie mierzy standardowej jakości klasyfikacji,
+lecz odporność modeli na sztucznie wprowadzone perturbacje cech.
+
+Dlatego wyniki tej sekcji nie powinny być porównywane bezpośrednio
+z metrykami uzyskanymi na czystym zbiorze testowym.
+
+W praktyce oznacza to, że:
+- modele bardzo dobrze działają na danych podobnych do treningowych,
+- ale ich skuteczność może silnie spadać przy zmianie charakterystyki URL
+  lub celowej manipulacji przez atakującego.
 
 Wykres: `outputs/robustness_analysis.png`
 
@@ -430,8 +459,8 @@ Krzywa ROC (`outputs/roc_curve_baseline.png`) pozwala wybrać punkt operacyjny
 
 | Model | Accuracy | Precision | Recall | F1-Score | AUC | CV F1 |
 |-------|:--------:|:---------:|:------:|:--------:|:---:|:-----:|
-| Logistic Regression | 0.9843 | 0.9889 | 0.9743 | 0.9815 | 0.9971 | 0.9823 ±0.0006 |
-| **Random Forest** | **0.9966** | **0.9983** | **0.9939** | **0.9961** | **0.9978** | **0.9966 ±0.0003** |
+| Logistic Regression | 0.9843 | 0.9889 | 0.9743 | 0.9815 | 0.9971 | 0.9796 ±0.0009 |
+| **Random Forest** | **0.9966** | **0.9983** | **0.9939** | **0.9961** | **0.9978** | **0.9961 ±0.0002** |
 
 ### Kluczowe wnioski
 
@@ -442,7 +471,7 @@ Krzywa ROC (`outputs/roc_curve_baseline.png`) pozwala wybrać punkt operacyjny
 | Najważniejsza cecha | `IsHTTPS` (39%) — ale temporalnie niestabilna |
 | Nieistotne cechy | Obfuskacja URL — phishing w datasecie jej nie używa |
 | Główne ograniczenie | Model pre-visit traci skuteczność gdy atakujący używa HTTPS i "legalnej" struktury URL |
-| Odporność na evasion | RF odporny do noise_std ≈ 1.0; LR degraduje już przy ≈ 0.30 |
+| Odporność na evasion | Oba modele silnie degradują pod perturbacją cech; RF osiąga lepsze wyniki przy dużym szumie, ale jest bardzo wrażliwy już przy niewielkich perturbacjach |
 | Wdrożenie produkcyjne | DNS-layer / email gateway z URL-only, próg kalibrowany do profilu ryzyka |
 
 ---

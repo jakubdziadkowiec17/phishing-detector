@@ -1,25 +1,47 @@
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import f1_score, make_scorer, precision_score, recall_score
 from sklearn.model_selection import StratifiedKFold, cross_validate
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, make_scorer
+from sklearn.preprocessing import StandardScaler
 
 
-def run_cross_validation(X, y):
-    """5-fold stratified cross-validation."""
+def run_cross_validation(X, y, *, use_smote: bool = True, random_state: int = 42):
+    """5-fold stratified cross-validation.
+
+    Notes:
+        If use_smote=True, SMOTE is applied *inside* each training fold via an imblearn
+        pipeline. This avoids data leakage and is the recommended methodology.
+    """
     print("\n=== Cross-Validation (5-fold Stratified) ===")
 
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
+
+    smote = SMOTE(random_state=random_state) if use_smote else "passthrough"
 
     models = {
-        "Logistic Regression": Pipeline([
-            ("scaler", StandardScaler()),
-            ("lr", LogisticRegression(max_iter=2000, random_state=42))
-        ]),
-        "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+        "Logistic Regression": ImbPipeline(
+            steps=[
+                ("smote", smote),
+                ("scaler", StandardScaler()),
+                ("lr", LogisticRegression(max_iter=2000, random_state=random_state)),
+            ]
+        ),
+        "Random Forest": ImbPipeline(
+            steps=[
+                ("smote", smote),
+                (
+                    "rf",
+                    RandomForestClassifier(
+                        n_estimators=100,
+                        random_state=random_state,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        ),
     }
 
     scoring = {

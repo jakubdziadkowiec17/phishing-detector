@@ -18,9 +18,12 @@ Brak analizy zawartości strony — tylko cechy wyciągane z samego URL.
 | Logistic Regression | 98.43% | 98.89% | 97.43% | 98.15% |
 | Random Forest | **99.66%** | **99.83%** | **99.39%** | **99.61%** |
 
-Cross-validation (5-fold, dane po SMOTE):
-- LR: 98.25% ±0.06%
-- RF: 99.66% ±0.03%
+Cross-validation (5-fold, SMOTE wewnątrz foldów):
+
+Uwaga metodyczna: w CV SMOTE wykonywane jest wewnątrz foldów (na treningowej części foldu),
+ LR: 98.27% ±0.08%
+ RF: 99.67% ±0.02%
+żeby uniknąć data leakage.
 
 ## Metody
 
@@ -38,7 +41,7 @@ Cross-validation (5-fold, dane po SMOTE):
 
 ### Walidacja
 - Podział 80/20 (stratified), `random_state=42`
-- 5-fold Stratified Cross-Validation na danych po SMOTE
+- 5-fold Stratified Cross-Validation (SMOTE wewnątrz foldów)
 - Metryki: Accuracy, Precision, Recall, F1, Confusion Matrix, ROC/AUC
 
 ### Analiza odporności (Robustness Analysis)
